@@ -296,7 +296,7 @@ class VLLM(TemplateLM):
         return self._max_gen_toks
 
     def apply_chat_template(
-        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
+        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True, task_name: Optional[str] = None
     ) -> str:
         """
         Method to apply a chat template to a list of chat history between user and model.
@@ -322,6 +322,40 @@ class VLLM(TemplateLM):
                 chat_template=self.hf_chat_template,
                 enable_thinking=self.enable_thinking,
             )
+
+        print(f"Chat template applied for task: {task_name}") if task_name else None
+
+        parts = task_name.split("_")
+        lang_code = parts[-2] if len(parts) >= 3 else None
+
+        # Post-processing: append phrase after <think> if present
+        LANGUAGE_PHRASES = {
+            "en": "Okay, let me try to figure this problem out step by step.",
+            "es": "Bien, déjame intentar resolver este problema paso a paso.",
+            "fr": "D'accord, laissez-moi essayer de résoudre ce problème étape par étape.",
+            "de": "Okay, lass mich versuchen, dieses Problem Schritt für Schritt zu lösen.",
+            "ru": "Хорошо, позволь мне попытаться решить эту задачу шаг за шагом.",
+            "zh": "好的，让我一步一步地来解决这个问题。",
+            "ja": "わかりました。この問題を一歩ずつ解いてみます。",
+            "th": "โอเค ให้ฉันลองแก้ปัญหานี้ทีละขั้นตอนดู",
+            "sw": "Sawa, wacha nijaribu kutatua tatizo hili hatua kwa hatua.",
+            "bn": "ঠিক আছে, আমাকে এই সমস্যাটি ধাপে ধাপে সমাধান করার চেষ্টা করতে দিন।",
+            "te": "సరే, ఈ సమస్యను దశలవారీగా పరిష్కరించేందుకు ప్రయత్నిస్తాను.",
+            "ml": "ശരി, ഈ പ്രശ്നം ഘട്ടമായി പരിഹരിക്കാൻ ഞാൻ ശ്രമിക്കാം.",
+            "hi": "ठीक है, मुझे इस समस्या को कदम दर कदम सुलझाने की कोशिश करने दो।",
+            # Add more as needed
+        }
+        
+        print(f"lang_code: {lang_code}")
+        phrase = ""
+        if lang_code:
+        
+            phrase = LANGUAGE_PHRASES.get(lang_code, "")
+        print(f"phrase: {phrase}")
+        # phrase = "" #remove it
+        # if chat_templated.rstrip().endswith("<think>"):
+        chat_templated = chat_templated.rstrip() + "\n" + phrase
+        print(f"chat_templated: {chat_templated}")
 
         return chat_templated
 

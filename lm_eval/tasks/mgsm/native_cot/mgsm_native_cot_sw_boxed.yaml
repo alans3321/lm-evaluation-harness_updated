@@ -10,9 +10,9 @@ filter_list:
   name: strict-match
 - filter:
   - function: regex
+    regex_pattern: '\\boxed\{([^}]+)\}'
     group_select: -1
-    regex_pattern: (-?[$0-9.,]{2,})|(-?[0-9]+)
-  - function: take_first
+  - function: take_last
   name: flexible-extract
 generation_kwargs:
   do_sample: false
@@ -21,4 +21,4 @@ generation_kwargs:
   - </s>
   - <|im_end|>
 include: cot_yaml
-task: mgsm_native_cot_sw
+task: mgsm_native_cot_sw_boxed
