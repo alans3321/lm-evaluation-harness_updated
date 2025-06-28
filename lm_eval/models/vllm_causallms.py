@@ -352,9 +352,11 @@ class VLLM(TemplateLM):
         
             phrase = LANGUAGE_PHRASES.get(lang_code, "")
         print(f"phrase: {phrase}")
-        # phrase = "" #remove it
+        # reasoning in english
+        phrase = "Okay, let me try to figure this problem out step by step." #remove it
         # if chat_templated.rstrip().endswith("<think>"):
         chat_templated = chat_templated.rstrip() + "\n" + phrase
+        chat_templated = chat_templated.replace("\n</think>", "")
         print(f"chat_templated: {chat_templated}")
 
         return chat_templated
