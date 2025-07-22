@@ -3,8 +3,10 @@ import asyncio
 import copy
 import itertools
 import json
+import re
 import logging
 from functools import cached_property
+from transformers import AutoTokenizer
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -307,24 +309,159 @@ class TemplateAPI(TemplateLM):
         return ""
 
     def apply_chat_template(
-        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
+        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True, task_name: Optional[str] = None
     ) -> Union[str, JsonChatStr]:
         """Applies a chat template to a list of chat history between user and model."""
-        if self.tokenizer_backend == "huggingface" and self.tokenized_requests:
-            return self.tokenizer.apply_chat_template(
+        model_name = self.model.replace(":free", "")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        # if self.tokenizer_backend == "huggingface" and self.tokenized_requests:
+
+        #     chat_templated =  self.tokenizer.apply_chat_template(
+        #         chat_history,
+        #         tokenize=False,
+        #         add_generation_prompt=add_generation_prompt,
+        #         continue_final_message=not add_generation_prompt,
+        #     )
+
+            
+        # else:
+        
+        #     # bit of a hack. We'll load back before sending to the API
+        # chat_templated = JsonChatStr(
+        #     json.dumps(
+        #         [{**item, "type": "text"} for item in chat_history],
+        #         ensure_ascii=False,
+        #     )
+        # )
+
+        if model_name.startswith("Qwen/Qwen3"):
+            print(f"Using Qwen3 tokenizer for chat template: {model_name}")
+            chat_templated =  tokenizer.apply_chat_template(
                 chat_history,
                 tokenize=False,
-                add_generation_prompt=add_generation_prompt,
+                add_generation_prompt=True,
                 continue_final_message=not add_generation_prompt,
+                enable_thinking=True
+                
             )
+            chat_templated = chat_templated.rstrip() + "\n<think>\n"
+            print(f"chat_templated_initial: {chat_templated}")
         else:
-            # bit of a hack. We'll load back before sending to the API
-            return JsonChatStr(
-                json.dumps(
-                    [{**item, "type": "text"} for item in chat_history],
-                    ensure_ascii=False,
+            chat_templated =  tokenizer.apply_chat_template(
+                    chat_history,
+                    tokenize=False,
+                    add_generation_prompt=add_generation_prompt,
+                    continue_final_message=not add_generation_prompt,
+                    
                 )
-            )
+        print(f"model_name: {model_name}")
+        if model_name.startswith("deepseek-ai/DeepSeek-R1-Distill"):
+            tag = "<｜User｜>"
+            idx = chat_templated.find(tag)
+            if idx != -1:
+                # drop everything before '<User>'
+                after = chat_templated[idx + len(tag):]
+                print(f"after: {after}")
+                s = r"You are a helpful assistant. You should reason and analyze the question in English and wrap your thought process in <think>...</think> tags. Then provide the answer in the language of the question, and keep the final answer in \boxed{}."
+                # reconstruct: keep '<User>', insert s + newline, then the original after‑text
+                chat_templated =  f"<｜begin▁of▁sentence｜>{tag}{s}\n{after}"
+#                    \n is in the template deepseek distill models
+        # print(f"Chat template applied for task: {task_name}") if task_name else None
+        # print(f"model: {self.model}")
+        # print(f"chat_templated: {chat_templated}")
+
+        parts = task_name.split("_")
+        lang_code = parts[-2] if len(parts) >= 3 else None
+
+        # Post-processing: append phrase after <think> if present
+        LANGUAGE_PHRASES = {
+            "en": "Okay, let me try to figure this problem out step by step.",
+            "es": "Bien, déjame intentar resolver este problema paso a paso.",
+            "fr": "D'accord, laissez-moi essayer de résoudre ce problème étape par étape.",
+            "de": "Okay, lass mich versuchen, dieses Problem Schritt für Schritt zu lösen.",
+            "ru": "Хорошо, позволь мне попытаться решить эту задачу шаг за шагом.",
+            "zh": "好的，让我一步一步地来解决这个问题。",
+            "ja": "わかりました。この問題を一歩ずつ解いてみます。",
+            "th": "โอเค ให้ฉันลองแก้ปัญหานี้ทีละขั้นตอนดู",
+            "sw": "Sawa, wacha nijaribu kutatua tatizo hili hatua kwa hatua.",
+            "bn": "ঠিক আছে, আমাকে এই সমস্যাটি ধাপে ধাপে সমাধান করার চেষ্টা করতে দিন।",
+            "te": "సరే, ఈ సమస్యను దశలవారీగా పరిష్కరించేందుకు ప్రయత్నిస్తాను.",
+            "ml": "ശരി, ഈ പ്രശ്നം ഘട്ടം ഘട്ടമായി പരിഹരിക്കാൻ ഞാൻ ശ്രമിക്കാം.",
+            "hi": "ठीक है, मुझे इस समस्या को कदम दर कदम सुलझाने की कोशिश करने दो।",
+            # Add more as needed
+        }
+        
+        # print(f"lang_code: {lang_code}")
+        phrase = ""
+        if lang_code:
+        
+            phrase = LANGUAGE_PHRASES.get(lang_code, "")
+        # print(f"phrase: {phrase}")
+        # reasoning in english
+        phrase = "Okay, let me try to figure this problem out step by step." #remove it
+        # if chat_templated.rstrip().endswith("<think>"):
+        chat_templated = chat_templated + phrase
+        chat_templated = chat_templated.replace("\n</think>", "")
+        print(f"chat_templated: {chat_templated}")
+
+
+
+        def chat_template_to_jsonchat(chat_str: str):
+            start_re = re.compile(r"<\|im_start\|\>(?P<role>\w+)\s*\n")
+            messages = []
+
+            for m in start_re.finditer(chat_str):
+                role = m.group("role")
+                content_start = m.end()
+                tail = chat_str[content_start:]
+
+                # search only in `tail`
+                next_start   = start_re.search(tail)
+                next_end_tag = re.search(r"<\|im_end\|\>", tail)
+
+                # compute end relative to `tail`
+                ends = [len(tail)]
+                if next_start:   ends.append(next_start.start())
+                if next_end_tag: ends.append(next_end_tag.start())
+                content = tail[:min(ends)].strip()
+
+                messages.append({"role": role, "content": content})
+
+            return JsonChatStr(json.dumps(messages, ensure_ascii=False))
+
+        
+        # chat_templated = chat_template_to_jsonchat(chat_templated)
+
+        # print(f"chat_templated_json: {chat_templated}")
+
+        return chat_templated
+
+
+    # def apply_chat_template(
+    #     self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True, task_name: Optional[str] = None
+    # ) -> Union[str, JsonChatStr]:
+
+    #     """Applies a chat template to a list of chat history between user and model."""
+    #     if self.tokenizer_backend == "huggingface" and self.tokenized_requests:
+    #         return self.tokenizer.apply_chat_template(
+    #             chat_history,
+    #             tokenize=False,
+    #             add_generation_prompt=add_generation_prompt,
+    #             continue_final_message=not add_generation_prompt,
+    #         )
+    #     else:
+    #         # bit of a hack. We'll load back before sending to the API
+    #         return JsonChatStr(
+    #             json.dumps(
+    #                 [{**item, "type": "text"} for item in chat_history],
+    #                 ensure_ascii=False,
+    #             )
+    #         )
+
+
+        
+
+      
 
     @cached_property
     def eot_token_id(self) -> Optional[int]:
@@ -437,6 +574,8 @@ class TemplateAPI(TemplateLM):
                     f"API request failed with error message: {response.text}. Retrying..."
                 )
             response.raise_for_status()
+            print(f"Response: {response}")
+            print(f"Response_json: {response.json()}")
             return response.json()
         except RetryError:
             eval_logger.error(

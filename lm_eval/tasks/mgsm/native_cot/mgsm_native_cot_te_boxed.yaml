@@ -17,8 +17,6 @@ filter_list:
 generation_kwargs:
   do_sample: false
   until:
-  - 'ప్రశ్న:'
-  - </s>
   - <|im_end|>
 include: cot_yaml
 task: mgsm_native_cot_te_boxed

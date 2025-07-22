@@ -89,6 +89,7 @@ class LocalCompletionsAPI(TemplateAPI):
 
     @staticmethod
     def parse_generations(outputs: Union[Dict, List[Dict]], **kwargs) -> List[str]:
+
         res = []
         if not isinstance(outputs, list):
             outputs = [outputs]
@@ -170,6 +171,31 @@ class LocalChatCompletion(LocalCompletionsAPI):
                 tmp[choices["index"]] = choices["message"]["content"]
             res = res + tmp
         return res
+
+    # below is for openrouter api
+
+    # @staticmethod
+    # def parse_generations(outputs: Union[Dict, List[Dict]], **kwargs) -> List[str]:
+    #     res = []
+    #     if not isinstance(outputs, list):
+    #         outputs = [outputs]
+    #     for out in outputs:
+    #         tmp = [None] * len(out["choices"])
+    #         for choices in out["choices"]:
+    #             message = choices["message"]
+    #             content = message["content"]
+    #             reasoning = message.get("reasoning", "")  # Get reasoning if it exists
+                
+    #             # Combine content and reasoning with clear separation
+    #             full_response = (
+    #                 f"{reasoning}/n </think> /n{content}" if reasoning 
+    #                 else content
+    #             )
+                
+    #             tmp[choices["index"]] = full_response
+    #         res = res + tmp
+    #     print("res", res)
+    #     return res
 
     def tok_encode(
         self,
@@ -294,3 +320,7 @@ class OpenAIChatCompletion(LocalChatCompletion):
         elif "o3" in self.model:
             output.pop("temperature")
         return output
+
+
+
+        
